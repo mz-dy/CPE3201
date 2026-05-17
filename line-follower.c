@@ -207,7 +207,12 @@ void main(){
         computePosition();
         checkLineLost();
         PID_control();
-
+		/* may need to add
+		// Only run PID if we haven't lost the line!
+        if (!checkLineLost()) {
+            PID_control();
+        }
+		*/
         __delay_ms(5);
     }
 }
