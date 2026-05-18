@@ -1,5 +1,263 @@
-//==========TEST ANALOG WITH PID===============
+//==========LINE FOLLOWER WITH PID + CALIBRATION===============
 #include <xc.h>
+#define _XTAL_FREQ 4000000
+
+#pragma config FOSC = XT
+#pragma config WDTE = OFF
+#pragma config PWRTE = ON
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+// ====== MUX PINS ======
+#define S0 PORTAbits.RA1
+#define S1 PORTAbits.RA2
+#define S2 PORTAbits.RA3
+#define S3 PORTAbits.RA5
+
+// ====== TB6612FNG MOTOR PINS ======
+#define AIN1 PORTDbits.RD0
+#define AIN2 PORTDbits.RD1
+#define BIN1 PORTDbits.RD2
+#define BIN2 PORTDbits.RD3
+
+// ====== STATUS LED ======
+#define STATUS_LED PORTDbits.RD5
+
+// ====== GLOBALS ======
+unsigned int sensor[16];
+
+// --- CALIBRATION ARRAYS ---
+unsigned int sensorMin[16];         // lowest ADC reading seen per sensor (white)
+unsigned int sensorMax[16];         // highest ADC reading seen per sensor (black)
+unsigned int sensorCalibrated[16];  // normalized 0 (white) to 1000 (black)
+
+long position;
+int error, previousError = 0;
+
+float Kp = 0.6, Ki = 0.0, Kd = 2.0;	//ADJUST VALUES THROUGH TRIAL AND ERROR
+float P, I = 0, D, PID;
+
+int baseSpeed = 140;
+
+// ====== ADC ======
+unsigned int readADC(){
+    GO_nDONE = 1;
+    while(GO_nDONE);
+    return (ADRESH << 8) | ADRESL;
+}
+
+// ====== MUX SELECT (4-bit) ======
+void setChannel(unsigned char ch){
+    S0 = ch & 0x01;
+    S1 = (ch >> 1) & 0x01;
+    S2 = (ch >> 2) & 0x01;
+    S3 = (ch >> 3) & 0x01;
+}
+
+// ====== READ RAW SENSOR ARRAY ======
+void readSensors(){
+    for(int i = 0; i < 16; i++){
+        setChannel(i);
+        __delay_us(50);     // settling time
+        sensor[i] = readADC();
+    }
+}
+
+// ====== NORMALIZE SENSORS USING CALIBRATION DATA ======
+// Maps each raw ADC reading to 0 (white) – 1000 (black).
+// Clamps values outside the calibrated range.
+void normalizeSensors(){
+    for(int i = 0; i < 16; i++){
+        if(sensorMax[i] > sensorMin[i]){	//if black > white
+            long norm = (long)(sensor[i] - sensorMin[i]) * 1000 / (sensorMax[i] - sensorMin[i]);	//normalization range (raw ADC d_value - white baseline) * 1000 / (most black reading - most white reading)[total valid range]
+            if(norm < 0)	//clamp negative readings for white to 0
+	       norm = 0;
+            if(norm > 1000)	//clamp >1000 readings for black to 1000 (max)
+	       norm = 1000;
+            sensorCalibrated[i] = (unsigned int)norm;
+        } else {				//if black == white, then no contrast
+            sensorCalibrated[i] = 0;
+        }
+    }
+}
+
+// ====== CALIBRATION FUNCTION auto on power-on, 7 seconds ======
+//   Automatically runs every time the robot is powered on.
+// WHAT TO DO DURING CALIBRATION:
+//   As soon as you power on the robot, immediately sweep it slowly
+//   back and forth across the track so every sensor passes over both
+//   the black line AND the white surface. The STATUS LED on RD5 will
+//   blink rapidly for 7 seconds while calibration is active.
+//   When the LED goes solid ON, calibration is complete and the
+//   robot will begin following the line automatically.
+//
+// WHAT IT DOES:
+//   Samples all 16 sensors repeatedly for 7 seconds and records the
+//   minimum ADC value (white surface) and maximum ADC value (black
+//   line) per sensor. These are used by normalizeSensors() to map
+//   raw readings to a consistent 0–1000 scale regardless of ambient
+//   lighting or sensor-to-surface height variation.
+//
+void calibrate(){
+    //Initialize min/max to worst-case bounds
+    for(int i = 0; i < 16; i++){
+        sensorMin[i] = 1023;   // will be pulled DOWN by white readings
+        sensorMax[i] = 0;      // will be pulled UP   by black readings
+    }
+
+    //Sample for 7 seconds (350 samples × 20 ms = 7000 ms)
+    for(int sample = 0; sample < 350; sample++){
+        readSensors();
+
+        for(int i = 0; i < 16; i++){
+            if(sensor[i] < sensorMin[i]) sensorMin[i] = sensor[i];
+            if(sensor[i] > sensorMax[i]) sensorMax[i] = sensor[i];
+        }
+
+        // Blink LED every 10 samples (~every 200 ms) as visual feedback
+        if(sample % 10 == 0){
+            STATUS_LED ^= 1;
+        }
+
+        __delay_ms(20);
+    }
+
+    //Calibration done - LED ON
+    STATUS_LED = 1;
+    __delay_ms(500);  // brief pause before robot starts
+}
+
+// ====== POSITION CALC (UPDATED to use sensorCalibrated) ======
+// sensorCalibrated range is 0–1000
+void computePosition(){
+    long sum = 0;
+    long weighted = 0;
+
+    for(int i = 0; i < 16; i++){
+        weighted += (long)sensorCalibrated[i] * (i * 1000);
+        sum      += sensorCalibrated[i];
+    }
+
+    if(sum != 0){
+        position = weighted / sum;  // 0 – 15000
+    }
+}
+
+// ====== MOTOR DRIVER ======
+void setMotors(signed char leftDir,  unsigned char leftSpeed,
+               signed char rightDir, unsigned char rightSpeed){
+
+    if(leftDir == 1)       { AIN1 = 1; AIN2 = 0; }
+    else if(leftDir == -1) { AIN1 = 0; AIN2 = 1; }
+    else                   { AIN1 = 0; AIN2 = 0; }
+
+    if(rightDir == 1)       { BIN1 = 1; BIN2 = 0; }
+    else if(rightDir == -1) { BIN1 = 0; BIN2 = 1; }
+    else                    { BIN1 = 0; BIN2 = 0; }
+
+    if(leftSpeed  > 249) leftSpeed  = 249;
+    if(rightSpeed > 249) rightSpeed = 249;
+
+    CCPR1L = leftSpeed;
+    CCPR2L = rightSpeed;
+}
+
+// ====== PID CONTROL ======
+void PID_control(){
+    error = (position - 7500) / 10;
+
+    P  = error;
+    I += error;
+    D  = error - previousError;
+
+    PID = (Kp * P) + (Kd * D) + (Ki * I);
+
+    previousError = error;
+
+    int leftSpeed  = baseSpeed - (int)PID;
+    int rightSpeed = baseSpeed + (int)PID;
+
+    if(leftSpeed  < 0) leftSpeed  = 0;
+    if(rightSpeed < 0) rightSpeed = 0;
+    if(leftSpeed  > 249) leftSpeed  = 249;
+    if(rightSpeed > 249) rightSpeed = 249;
+
+    setMotors(1, leftSpeed, 1, rightSpeed);
+}
+
+// ====== LINE LOST (threshold for 0–1000 scale) ======
+void checkLineLost(){
+    int lost = 1;
+
+    for(int i = 0; i < 16; i++){
+        if(sensorCalibrated[i] > 500){   // 500 = midpoint of 0–1000
+            lost = 0;
+            break;
+        }
+    }
+
+    if(lost){
+        if(previousError > 200){
+            setMotors(-1, 160, 1, 160);  // spin left
+        } else if(previousError < -200){
+            setMotors(1, 160, -1, 160);  // spin right
+        } else {
+            setMotors(1, 160, 1, 160);   // go straight
+        }
+    }
+}
+
+// ====== INIT (UPDATED) ======
+void init(){
+    // Motors
+    TRISD = 0x00;
+    PORTD = 0x00;
+
+    // STATUS LED on RD5 is already output via TRISD = 0x00
+    STATUS_LED = 0;
+
+    // ADC — AN0 analog only
+    ADCON1 = 0x8E;
+    ADCON0 = 0x41;   // ADC ON, channel 0
+
+    // PORTA:
+    //   RA0 = AN0 input (analog)
+    //   RA1,RA2,RA3,RA5 = MUX select outputs
+    TRISA = 0x01;  // RA0 as input; others outputs
+   
+      TRISC = 0x00;
+      PORTC = 0x00;
+    // PWM
+    PR2    = 249;
+    T2CON  = 0b00000101;
+    CCP1CON = 0x0C;
+    CCP2CON = 0x0C;
+    CCPR1L  = 0;
+    CCPR2L  = 0;
+}
+
+// ====== MAIN ======
+void main(){
+   init();
+
+   calibrate();
+   //__delay_ms(5000);		//delay after calibration to allow time to set up robot
+    while(1){
+        readSensors();
+        normalizeSensors();
+        computePosition();
+        checkLineLost();
+        PID_control();
+
+        __delay_ms(5);
+    }
+}
+
+//==========TEST ANALOG WITH PID===============
+/*#include <xc.h>
 #define _XTAL_FREQ 4000000
 
 #pragma config FOSC = XT   
@@ -50,7 +308,7 @@ unsigned int readADC(){
    voltage = (float)d_value * (float)50 / (float)1023.0;	//TEST ONLY
       frac = ((int)voltage)%10;					//TEST ONLY
       whole = ((int)voltage/10)%10;				//TEST ONLY
-      /* setting the LEDs */
+      
       display(); 						//TEST ONLY
     return (ADRESH << 8) | ADRESL;
 }
@@ -207,15 +465,10 @@ void main(){
         computePosition();
         checkLineLost();
         PID_control();
-		/* may need to add
-		// Only run PID if we haven't lost the line!
-        if (!checkLineLost()) {
-            PID_control();
-        }
-		*/
+
         __delay_ms(5);
     }
-}
+}*/
 
 
 //========== TEST MOTOR DRIVER =============
