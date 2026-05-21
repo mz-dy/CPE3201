@@ -26,6 +26,12 @@
 // ====== STATUS LED ======
 #define STATUS_LED PORTDbits.RD5
 
+#define BASE 125
+#define MID 160
+#define HALF 62
+#define DOUBLE 200
+#define SMALL 24
+
 void System_Init(void) {
     // 1. Configure I/O Pins
     TRISCbits.TRISC1 = 0;       // RC1 (CCP2) Output for PWMB (Right Speed)
@@ -87,45 +93,57 @@ void main(void) {
     __delay_ms(1000);           // Power-on stabilization delay
    STATUS_LED=1;
     while(1) {
-      if((PORTA & 0x2F) == 0x21 || (PORTA & 0x2F) == 0b00101011){ //move forward
+      if((PORTA & 0x21) == 0b00101011){ //move forward
 	    // 1. Move Forward at ~50% Speed (125/249)
-	    setMotors(1, 125, 1, 125);
+	    setMotors(1, MID, 1, MID);
 	 }
+	else if((PORTA & 0x2F) == 0x2F){ 
+	    //stop
+	    setMotors(1, 70, 1, 70);
+	}
       else if((PORTA & 0x2F) == 0b00100011){ 
 	    // turn slightly left, slight forward;
-	    setMotors(1, 62, 1, 125);
+	    setMotors(1, HALF, 1, BASE);
 	 }
       else if((PORTA & 0x2F) == 0b00101001){ 
 	    // turn slightly right, slight forward
-	    setMotors(1, 125, 1, 62);
+	    setMotors(1, BASE, 1, HALF);
 	 }
-      else if((PORTA & 0x2F) == 0b00100111 || (PORTA & 0x2F) == 0b00000111 || (PORTA & 0x2F) == 0b00000011){ 
+      else if((PORTA & 0x2F) == 0b00100111){  //3 and 2 black on left
 	    // turn more left
-	    setMotors(1, 31, 1, 200);
+	    setMotors(1, 31, 1, BASE);
 	 }
-      else if((PORTA & 0x2F) == 0b00101101 || (PORTA & 0x2F) == 0b00101100 || (PORTA & 0x2F) == 0b00101000){ 
+	  else if((PORTA & 0x2F) == 0b00000111){  //3 and 2 black on left
+	    // turn more left
+	    setMotors(1, 31, 1, DOUBLE);
+	 }
+      else if((PORTA & 0x2F) == 0b00101101){ //3 and 2 black on right
 	    //turn more right
-	    setMotors(1, 200, 1, 31);
+	    setMotors(1, BASE, 1, 31);
+	 }
+	  else if((PORTA & 0x2F) == 0b00101100){ //3 and 2 black on right
+	    //turn more right
+	    setMotors(1, DOUBLE, 1, 31);
 	 }
       else if((PORTA & 0x2F) == 0b00101110){ 
 	   //turn hard right
-	    setMotors(1, 200, 1, 24);
+	    setMotors(1, DOUBLE, 1, SMALL);
 	 }
       else if((PORTA & 0x2F) == 0b00001111){ 
 	    //turn hard left
-	    setMotors(1, 24, 1, 200);
+	    setMotors(1, SMALL, 1, DOUBLE);
 	 }
-      else if((PORTA & 0x2F) == 0b00100000){ //black veer off to right 
+      else if((PORTA & 0x2F) == 0b00100000 || (PORTA & 0x2F) == 0b00101000){ //black veer off to right 
 	   //turn hard right, right wheel stop
-	    setMotors(1, 125, 1, 10);
+	    setMotors(1, MID, -1, 180);
 	 }
-      else if((PORTA & 0x2F) == 0b00000001){ //black veer off to left 
+      else if((PORTA & 0x2F) == 0b00000001 || (PORTA & 0x2F) == 0b00000011){ //black veer off to left 
 	    //turn hard left, left wheel stop
-	    setMotors(1, 10, 1, 125);
+	    setMotors(-1, 180, 1, MID);
 	 }
-      else if((PORTA & 0x2F) == 0x00 || (PORTA & 0x2F) == 0x00){ 
+      else if((PORTA & 0x2F) == 0x00 || (PORTA & 0x2F) == 0b00100001){ 
 	    //stop
-	    setMotors(0, 0, 0, 0);
+	    setMotors(1, 100, 1, 100);
 	 }
     }
 }
