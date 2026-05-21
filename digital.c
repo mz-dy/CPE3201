@@ -31,6 +31,7 @@
 #define HALF 62
 #define DOUBLE 200
 #define SMALL 24
+#define N 15
 
 void System_Init(void) {
     // 1. Configure I/O Pins
@@ -99,7 +100,7 @@ void main(void) {
 	 }
 	else if((PORTA & 0x2F) == 0x2F){ 
 	    //stop
-	    setMotors(1, 70, 1, 70);
+	    setMotors(1, 70+N, 1, 70+N);
 	}
       else if((PORTA & 0x2F) == 0b00100011){ 
 	    // turn slightly left, slight forward;
@@ -109,7 +110,7 @@ void main(void) {
 	    // turn slightly right, slight forward
 	    setMotors(1, BASE, 1, HALF);
 	 }
-      else if((PORTA & 0x2F) == 0b00100111){  //3 and 2 black on left
+      else if((PORTA & 0x2F) == 0b00100111){  //1 black on second left
 	    // turn more left
 	    setMotors(1, 31, 1, BASE);
 	 }
@@ -117,7 +118,7 @@ void main(void) {
 	    // turn more left
 	    setMotors(1, 31, 1, DOUBLE);
 	 }
-      else if((PORTA & 0x2F) == 0b00101101){ //3 and 2 black on right
+      else if((PORTA & 0x2F) == 0b00101101){ //1 black on second right
 	    //turn more right
 	    setMotors(1, BASE, 1, 31);
 	 }
