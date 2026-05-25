@@ -10,13 +10,6 @@
 #pragma config WRT = OFF
 #pragma config CP = OFF
 
-// ====== MUX PINS ======
-//#define S0 PORTAbits.RA1
-//#define S1 PORTAbits.RA2
-//#define S2 PORTAbits.RA3
-//#define S3 PORTAbits.RA5
-//SENSORS: 1 2 3 4 5 : RA5 RA3 RA2 RA1 RA0
-
 // ====== TB6612FNG MOTOR PINS ======
 #define AIN1 PORTDbits.RD0
 #define AIN2 PORTDbits.RD1
@@ -26,12 +19,27 @@
 // ====== STATUS LED ======
 #define STATUS_LED PORTDbits.RD5
 
-#define BASE 125
-#define MID 160
-#define HALF 62
+#define BASE 135 
+#define MID 172 
+#define HALF 68
 #define DOUBLE 200
 #define SMALL 24
 #define N 15
+
+#define FORW 1
+#define SLIGHTL 2
+#define SLIGHTR 3
+#define MOREL 4
+#define MORER 5
+#define MOREL2 6
+#define MORER2 7
+#define HARDL 8
+#define HARDR 9
+#define HARDL2 10
+#define HARDR2 11
+#define UNK 12
+
+int var;
 
 void System_Init(void) {
     // 1. Configure I/O Pins
@@ -40,7 +48,7 @@ void System_Init(void) {
     TRISD = 0x00;              // RD0, RD1, RD2, RD3 as Outputs for Direction Logic, RD4, RD5 as LED Output
     PORTD = 0xF0;              // Initialize direction pins LOW, Initialize LED HIGH
     ADCON1 = 0x06;	       // Initialize PORTA pins as digital
-    TRISA = 0x2F;	       // Initialize RA0 - RA4 as sensor input
+    TRISA = 0x2F;	       // Initialize RA0 - RA4 as sensor input   ;   SENSORS: 1 2 3 4 5 : RA5 RA3 RA2 RA1 RA0
    
     // 2. Configure Timer2 for PWM (Recalculated for 4MHz)
     // Target PWM Frequency: ~1kHz (Optimal for N20 motors)
@@ -97,54 +105,80 @@ void main(void) {
       if((PORTA & 0x21) == 0b00101011){ //move forward
 	    // 1. Move Forward at ~50% Speed (125/249)
 	    setMotors(1, MID, 1, MID);
+		var = FORW;
 	 }
 	else if((PORTA & 0x2F) == 0x2F){ 
 	    //stop
-	    setMotors(1, 70+N, 1, 70+N);
+	    //setMotors(1, 70+N, 1, 70+N);
+		switch(var){
+		case FORW: setMotors(1, MID, 1, MID); break;
+		case SLIGHTL: setMotors(1, HALF, 1, BASE); break;
+		case SLIGHTR: setMotors(1, BASE, 1, HALF); break;
+		case MOREL: setMotors(1, 31, 1, BASE); break;
+		case MOREL2: setMotors(1, 31, 1, DOUBLE); break;
+		case MORER: setMotors(1, BASE, 1, 31); break;
+		case MORER2: setMotors(1, DOUBLE, 1, 31); break;
+		case HARDR: setMotors(1, DOUBLE, 1, SMALL); break;
+		case HARDL: setMotors(1, SMALL, 1, DOUBLE); break;
+		case HARDR2: setMotors(1, MID, -1, 180); break;
+		case HARDL2: setMotors(-1, 180, 1, MID); break;
+		case UNK: setMotors(1, 100, 1, 100); break;
+		}
 	}
       else if((PORTA & 0x2F) == 0b00100011){ 
 	    // turn slightly left, slight forward;
 	    setMotors(1, HALF, 1, BASE);
+		var = SLIGHTL;
 	 }
       else if((PORTA & 0x2F) == 0b00101001){ 
 	    // turn slightly right, slight forward
 	    setMotors(1, BASE, 1, HALF);
+		var = SLIGHTR;
 	 }
       else if((PORTA & 0x2F) == 0b00100111){  //1 black on second left
 	    // turn more left
 	    setMotors(1, 31, 1, BASE);
+		var = MOREL;
 	 }
 	  else if((PORTA & 0x2F) == 0b00000111){  //3 and 2 black on left
-	    // turn more left
+	    // turn more left 2
 	    setMotors(1, 31, 1, DOUBLE);
+		var = MOREL2;
 	 }
       else if((PORTA & 0x2F) == 0b00101101){ //1 black on second right
 	    //turn more right
 	    setMotors(1, BASE, 1, 31);
+		var = MORER;
 	 }
 	  else if((PORTA & 0x2F) == 0b00101100){ //3 and 2 black on right
-	    //turn more right
+	    //turn more right 2
 	    setMotors(1, DOUBLE, 1, 31);
+		var = MORER2;
 	 }
       else if((PORTA & 0x2F) == 0b00101110){ 
 	   //turn hard right
 	    setMotors(1, DOUBLE, 1, SMALL);
+		var = HARDR;
 	 }
       else if((PORTA & 0x2F) == 0b00001111){ 
 	    //turn hard left
 	    setMotors(1, SMALL, 1, DOUBLE);
+		var = HARDL;
 	 }
       else if((PORTA & 0x2F) == 0b00100000 || (PORTA & 0x2F) == 0b00101000){ //black veer off to right 
-	   //turn hard right, right wheel stop
+	   //turn hard right 2, right wheel stop
 	    setMotors(1, MID, -1, 180);
+		var = HARDR2;
 	 }
       else if((PORTA & 0x2F) == 0b00000001 || (PORTA & 0x2F) == 0b00000011){ //black veer off to left 
-	    //turn hard left, left wheel stop
+	    //turn hard left 2, left wheel stop
 	    setMotors(-1, 180, 1, MID);
+		var = HARDL2;
 	 }
       else if((PORTA & 0x2F) == 0x00 || (PORTA & 0x2F) == 0b00100001){ 
-	    //stop
+	    //UNK
 	    setMotors(1, 100, 1, 100);
+		var = UNK;
 	 }
     }
 }
